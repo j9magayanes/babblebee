@@ -32,6 +32,7 @@ export interface SocketData {
     username: string;
     firstName: string;
     language: string;
+    room: string;
 }
 
 export type MessagingServer = Server<
