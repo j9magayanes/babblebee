@@ -1,5 +1,6 @@
 {
   "imports": {
-    "@oak/oak": "jsr:@oak/oak@^17.1.3"
+    "@oak/oak": "jsr:@oak/oak@^17.1.3",
+    "libretranslate-ts": "npm:libretranslate-ts@^0.5.11"
   }
 }

@@ -1,64 +1,86 @@
-import { Context } from "@oak/oak";
+import { MessagingServer, ServerSocket, SocketData } from "./types.ts";
+import { libreTranslate } from "libretranslate-ts";
 
-type WebSocketWithUsername = WebSocket & { username: string };
-type AppEvent = { event: string; [key: string]: any };
+const LIBRETRANSLATE_ENDPOINT = "http://localhost:5001";
+libreTranslate.setApiEndpoint(LIBRETRANSLATE_ENDPOINT);
+libreTranslate.setApiKey("");
+
 
 export default class ChatServer {
-  private connectedClients = new Map<string, WebSocketWithUsername>();
+    private io: MessagingServer;
+    private activeLanguages: Set<string> = new Set();
 
-  public async handleConnection(ctx: Context) {
-    const socket = await ctx.upgrade() as WebSocketWithUsername;
-    const username = ctx.request.url.searchParams.get("username");
+    constructor(io: MessagingServer) {
+        this.io = io;
+    }
 
-    if (!username || this.connectedClients.has(username)) {
-      socket.close(1008, `Username ${username} is already taken`);
+    private parseQuery(query: URLSearchParams): SocketData {
+        const username = query.get('username');
+        const firstName = query.get('firstName') || '';
+        const deviceId = query.get('deviceId') || '';
+        const language = query.get('language');
+
+        if (!username || !language) {
+            throw new Error("Missing required query parameters");
+        }
+
+        return { username, firstName, deviceId, language };
+    }
+
+    public handleConnection = async (socket: ServerSocket) => {
+        try {
+            socket.data = this.parseQuery(socket.handshake.query);
+        } catch (_) {
+            socket.emit('error', 'Missing required query parameters');
+            socket.disconnect();
       return;
     }
 
-    socket.username = username;
-    socket.onopen = this.broadcastUsernames.bind(this);
-    socket.onclose = () => {
-      this.clientDisconnected(socket.username);
-    };
-    socket.onmessage = (m) => {
-      this.send(socket.username, m);
-    };
-    this.connectedClients.set(username, socket);
+        const userData = socket.data as SocketData;
+        const sourceLanguage = userData.language;
+        this.activeLanguages.add(sourceLanguage);
 
-    console.log(`New client connected: ${username}`);
+        socket.join('chat')
+        socket.join(`chat_${sourceLanguage}`);
+
+        socket.broadcast.to('chat').emit('userJoined', userData.username);
+
+        socket.on("disconnect", (reason) => {
+            console.log(`socket ${socket.id} disconnected due to ${reason}`);
+            socket.broadcast.to('chat').emit('userDisconnected', userData.username);
+        });
+
+        socket.on('message', ({ message: sourceMessage, sourceLanguage }) => {
+            for (const language of this.activeLanguages) {
+
+                const defaultPayload = { sourceLanguage, sourceMessage, translatedMessage: sourceMessage, username: userData.username };
+                if (language === sourceLanguage) {
+                    socket.broadcast.to(`chat_${language}`).emit('message', defaultPayload);
+                    continue;
+                }
+
+                libreTranslate.translate(sourceMessage, sourceLanguage, language).then((result) => {
+                    if (result?.status >= 400) {
+                        console.error("Error: ", result?.error);
+                        console.error(result?.translatedText);
+                        return;
+                    }
+
+                    const translatedMessage = result?.translatedText;
+                    socket.broadcast.to(`chat_${language}`).emit('message', {
+                        ...defaultPayload,
+                        translatedMessage
+                    });
+                }).catch((error) => {
+                    console.error(error);
+                    socket.broadcast.to(`chat_${language}`).emit('message', {
+                        ...defaultPayload,
+                        translatedMessage: 'Error translating message'
+                    });
+                });
   }
 
-  private send(username: string, message: any) {
-    const data = JSON.parse(message.data);
-    if (data.event !== "send-message") {
-      return;
+        });
     }
-
-    this.broadcast({
-      event: "send-message",
-      username: username,
-      message: data.message,
-    });
-  }
-
-  private clientDisconnected(username: string) {
-    this.connectedClients.delete(username);
-    this.broadcastUsernames();
-
-    console.log(`Client ${username} disconnected`);
-  }
-
-  private broadcastUsernames() {
-    const usernames = [...this.connectedClients.keys()];
-    this.broadcast({ event: "update-users", usernames });
-
-    console.log("Sent username list:", JSON.stringify(usernames));
-  }
-
-  private broadcast(message: AppEvent) {
-    const messageString = JSON.stringify(message);
-    for (const client of this.connectedClients.values()) {
-      client.send(messageString);
-    }
-  }
 }
+

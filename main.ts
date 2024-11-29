@@ -1,21 +1,25 @@
-import { Application, Context, Router } from "@oak/oak";
+import { serve } from "https://deno.land/std@0.220.1/http/server.ts";
+import { Server } from "https://deno.land/x/socket_io@0.2.0/mod.ts";
+import { Application } from "@oak/oak";
 import ChatServer from "./ChatServer.ts";
+import { MessagingServer } from "./types.ts";
 
 const app = new Application();
-const port = 8080;
-const router = new Router();
-const server = new ChatServer();
 
-router.get("/start_web_socket", (ctx: Context) => {
-    console.log("Handling connection");
-    server.handleConnection(ctx)
+app.use((ctx) => {
+    ctx.response.body = "Hello World!";
 });
 
-app.use(router.routes());
-app.use(router.allowedMethods());
-app.use(async (context) => {
-    context.response.status = 200;
+const io: MessagingServer = new Server();
+const chatServer = new ChatServer(io);
+
+io.on("connection", chatServer.handleConnection);
+
+const handler = io.handler(async (req) => {
+    console.log('rcv request', req);
+    return await app.handle(req) || new Response(null, { status: 404 });
 });
 
-console.log("Listening at http://localhost:" + port);
-await app.listen({ port });
+await serve(handler, {
+    port: 3000,
+});
