@@ -33,8 +33,8 @@ export default class ChatServer {
         } catch (_) {
             socket.emit('error', 'Missing required query parameters');
             socket.disconnect();
-      return;
-    }
+            return;
+        }
 
         const userData = socket.data as SocketData;
         const sourceLanguage = userData.language;
@@ -50,35 +50,36 @@ export default class ChatServer {
             socket.broadcast.to('chat').emit('userDisconnected', userData.username);
         });
 
-        socket.on('message', ({ message: sourceMessage, sourceLanguage }) => {
-            for (const language of this.activeLanguages) {
+        socket.on('message', ({ message: sourceMessage }) => {
+            for (const targetLanguage of this.activeLanguages) {
 
                 const defaultPayload = { sourceLanguage, sourceMessage, translatedMessage: sourceMessage, username: userData.username };
-                if (language === sourceLanguage) {
-                    socket.broadcast.to(`chat_${language}`).emit('message', defaultPayload);
+                if (targetLanguage === sourceLanguage) {
+                    socket.broadcast.to(`chat_${targetLanguage}`).emit('message', defaultPayload);
                     continue;
                 }
+                console.log('req:', sourceMessage, sourceLanguage, targetLanguage);
 
-                libreTranslate.translate(sourceMessage, sourceLanguage, language).then((result) => {
+                libreTranslate.translate(sourceMessage, sourceLanguage, targetLanguage).then((result) => {
                     if (result?.status >= 400) {
-                        console.error("Error: ", result?.error);
+                        console.error("Translate Error: ", result?.error);
                         console.error(result?.translatedText);
                         return;
                     }
 
                     const translatedMessage = result?.translatedText;
-                    socket.broadcast.to(`chat_${language}`).emit('message', {
+                    socket.broadcast.to(`chat_${targetLanguage}`).emit('message', {
                         ...defaultPayload,
                         translatedMessage
                     });
                 }).catch((error) => {
                     console.error(error);
-                    socket.broadcast.to(`chat_${language}`).emit('message', {
+                    socket.broadcast.to(`chat_${targetLanguage}`).emit('message', {
                         ...defaultPayload,
                         translatedMessage: 'Error translating message'
                     });
                 });
-  }
+            }
 
         });
     }
