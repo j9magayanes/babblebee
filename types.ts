@@ -30,7 +30,6 @@ interface InterServerEvents {
 export interface SocketData {
     deviceId: string;
     username: string;
-    firstName: string;
     language: string;
     room: string;
 }

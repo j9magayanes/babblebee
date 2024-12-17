@@ -8,7 +8,12 @@ import { Database } from './database.types.ts'
 
 const supabase = createClient<Database>(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_KEY')!);
 
-const io: MessagingServer = new Server();
+const io: MessagingServer = new Server({
+    cors: {
+        origin: "*"
+    }
+}
+);
 const chatServer = new ChatServer(io, supabase);
 const app = new Application();
 const roomsRouter = new Router({
